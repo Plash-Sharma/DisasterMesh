@@ -94,7 +94,3 @@ The core pipeline integrates multiple advanced routing protocols and resource al
 2. **Battery-Aware Multi-Objective Optimization** — Combines HMRFCO for resource allocation and Q-D2D for transmission power control.
 3. **Dynamic Node Role Assignment** — Roles (Anchor, Relay, Leaf) adapt via real-time NodeScore metrics incorporating speed, battery, and reputation.
 4. **Resilient Hybrid Fallback** — Deep RL (DRL) for congestion management paired with Spray-and-Wait (S&W) DTN strategies for highly fragmented networks.
-
-## License
-
-MIT License — For academic research and humanitarian purposes.
