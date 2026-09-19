@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DisasterMesh — Live Simulation</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Inter',sans-serif; background:#0a0e1a; color:#e0e6f0; overflow:hidden; height:100vh; }
+  .container { display:flex; height:100vh; }
+
+  /* Canvas area */
+  .canvas-area { flex:1; position:relative; }
+  canvas { width:100%; height:100%; display:block; }
+  .canvas-overlay { position:absolute; top:16px; left:16px; z-index:10; }
+  .canvas-overlay h1 { font-size:18px; font-weight:700; color:#00e5ff;
+    text-shadow:0 0 20px rgba(0,229,255,0.3); letter-spacing:1px; }
+  .canvas-overlay .subtitle { font-size:11px; color:#6b7a99; margin-top:2px; }
+
+  /* Sidebar */
+  .sidebar { width:320px; background:rgba(12,16,30,0.95); border-left:1px solid rgba(0,229,255,0.15);
+    padding:20px; overflow-y:auto; display:flex; flex-direction:column; gap:16px;
+    backdrop-filter:blur(10px); }
+  .sidebar h2 { font-size:13px; font-weight:600; color:#00e5ff; text-transform:uppercase;
+    letter-spacing:1.5px; padding-bottom:8px; border-bottom:1px solid rgba(0,229,255,0.1); }
+
+  /* Metric cards */
+  .metric-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .metric-card { background:rgba(0,229,255,0.04); border:1px solid rgba(0,229,255,0.1);
+    border-radius:8px; padding:10px; text-align:center; }
+  .metric-card .value { font-size:22px; font-weight:700; color:#00e5ff; }
+  .metric-card .label { font-size:10px; color:#6b7a99; margin-top:2px; text-transform:uppercase; }
+
+  /* Controls */
+  .controls { display:flex; gap:8px; flex-wrap:wrap; }
+  .btn { padding:8px 16px; border:1px solid rgba(0,229,255,0.3); background:rgba(0,229,255,0.08);
+    color:#00e5ff; border-radius:6px; cursor:pointer; font-size:12px; font-weight:500;
+    transition:all 0.2s; }
+  .btn:hover { background:rgba(0,229,255,0.2); box-shadow:0 0 15px rgba(0,229,255,0.15); }
+  .btn.active { background:rgba(0,229,255,0.25); box-shadow:0 0 20px rgba(0,229,255,0.2); }
+  .btn.stop { border-color:rgba(255,82,82,0.3); color:#ff5252; background:rgba(255,82,82,0.08); }
+  .btn.stop:hover { background:rgba(255,82,82,0.2); }
+
+  /* Legend */
+  .legend { display:flex; flex-wrap:wrap; gap:6px; }
+  .legend-item { display:flex; align-items:center; gap:4px; font-size:10px; color:#8a95b0; }
+  .legend-dot { width:10px; height:10px; border-radius:50%; }
+
+  /* Speed slider */
+  .speed-control { display:flex; align-items:center; gap:8px; }
+  .speed-control input { flex:1; accent-color:#00e5ff; }
+  .speed-control span { font-size:11px; color:#6b7a99; min-width:30px; }
+
+  /* Node info tooltip */
+  .tooltip { position:absolute; background:rgba(12,16,30,0.95); border:1px solid rgba(0,229,255,0.3);
+    border-radius:8px; padding:10px; font-size:11px; pointer-events:none; z-index:100;
+    display:none; min-width:160px; backdrop-filter:blur(10px); }
+  .tooltip .tt-row { display:flex; justify-content:space-between; margin:2px 0; }
+  .tooltip .tt-label { color:#6b7a99; }
+  .tooltip .tt-value { color:#e0e6f0; font-weight:500; }
+
+  /* Reputation bar chart */
+  .rep-chart { height:60px; display:flex; align-items:flex-end; gap:1px; }
+  .rep-bar { background:linear-gradient(to top, #00e5ff, #00bcd4); min-width:3px; border-radius:1px 1px 0 0;
+    transition:height 0.3s; }
+
+  /* Status indicator */
+  .status { display:flex; align-items:center; gap:6px; font-size:11px; }
+  .status-dot { width:8px; height:8px; border-radius:50%; }
+  .status-dot.running { background:#4caf50; box-shadow:0 0 8px rgba(76,175,80,0.5); animation:pulse 1.5s infinite; }
+  .status-dot.stopped { background:#ff5252; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="canvas-area">
+    <canvas id="meshCanvas"></canvas>
+    <div class="canvas-overlay">
+      <h1>⚡ DisasterMesh</h1>
+      <div class="subtitle">Bluetooth D2D Ad-Hoc Network — Live Simulation</div>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
+  </div>
+
+  <div class="sidebar">
+    <div>
+      <div class="status" id="statusBar">
+        <div class="status-dot stopped" id="statusDot"></div>
+        <span id="statusText">Stopped</span>
+      </div>
+    </div>
+
+    <div>
+      <h2>Controls</h2>
+      <div class="controls">
+        <button class="btn" id="btnStart" onclick="startSim()">▶ Start</button>
+        <button class="btn stop" id="btnStop" onclick="stopSim()">■ Stop</button>
+        <button class="btn" onclick="toggleLabels()">🏷 Labels</button>
+        <button class="btn" onclick="toggleEdges()">🔗 Edges</button>
+      </div>
+      <div class="speed-control" style="margin-top:8px;">
+        <span>Speed</span>
+        <input type="range" min="1" max="100" value="10" id="speedSlider" oninput="setSpeed(this.value)">
+        <span id="speedLabel">1.0x</span>
+      </div>
+    </div>
+
+    <div>
+      <h2>Network Metrics</h2>
+      <div class="metric-grid">
+        <div class="metric-card"><div class="value" id="mPDR">0.000</div><div class="label">PDR</div></div>
+        <div class="metric-card"><div class="value" id="mLatency">0.00</div><div class="label">Latency (s)</div></div>
+        <div class="metric-card"><div class="value" id="mActive">0</div><div class="label">Active Nodes</div></div>
+        <div class="metric-card"><div class="value" id="mConn">0.000</div><div class="label">Connectivity</div></div>
+        <div class="metric-card"><div class="value" id="mSent">0</div><div class="label">Pkts Sent</div></div>
+        <div class="metric-card"><div class="value" id="mDelivered">0</div><div class="label">Delivered</div></div>
+        <div class="metric-card"><div class="value" id="mTime">0.0</div><div class="label">Sim Time (s)</div></div>
+        <div class="metric-card"><div class="value" id="mReward">0.0</div><div class="label">Reward</div></div>
+      </div>
+    </div>
+
+    <div>
+      <h2>Legend</h2>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#4caf50"></div>Anchor</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#2196f3"></div>Relay</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#78909c"></div>Leaf</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#ffd54f"></div>Super</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#ff5252"></div>Dead</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#e91e63;width:8px;height:8px"></div>Survivor</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#ff9800;width:8px;height:8px"></div>Rescue</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#9c27b0;width:8px;height:8px"></div>Trapped</div>
+      </div>
+    </div>
+
+    <div>
+      <h2>Reputation Distribution</h2>
+      <div class="rep-chart" id="repChart"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const socket = io();
+const canvas = document.getElementById('meshCanvas');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+
+let nodes = [], edges = [], packets = [];
+let prevNodes = {}; // For smooth interpolation
+let showLabels = true, showEdges = true;
+let areaW = 800, areaH = 600;
+let animFrame = null;
+let hoveredNode = null;
+
+// Role colors
+const ROLE_COLORS = {
+  anchor: '#4caf50', relay: '#2196f3', leaf: '#78909c', super: '#ffd54f'
+};
+const TYPE_RING = { survivor: '#e91e63', rescue_worker: '#ff9800', trapped: '#9c27b0' };
+
+function resize() {
+  const r = canvas.parentElement.getBoundingClientRect();
+  canvas.width = r.width * devicePixelRatio;
+  canvas.height = r.height * devicePixelRatio;
+  canvas.style.width = r.width + 'px';
+  canvas.style.height = r.height + 'px';
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+function scaleX(x) { return (x / areaW) * (canvas.width / devicePixelRatio - 60) + 30; }
+function scaleY(y) { return (y / areaH) * (canvas.height / devicePixelRatio - 60) + 30; }
+
+// Smooth interpolation
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+socket.on('sim_update', (data) => {
+  // Store previous positions for interpolation
+  nodes.forEach(n => { prevNodes[n.id] = { x: n._sx || scaleX(n.x), y: n._sy || scaleY(n.y) }; });
+  nodes = data.nodes || [];
+  edges = data.edges || [];
+  packets = (packets || []).concat(data.packets || []);
+  if (packets.length > 50) packets = packets.slice(-50);
+
+  // Compute screen positions
+  nodes.forEach(n => {
+    n._tx = scaleX(n.x);
+    n._ty = scaleY(n.y);
+    const prev = prevNodes[n.id];
+    n._sx = prev ? prev.x : n._tx;
+    n._sy = prev ? prev.y : n._ty;
+    n._t = 0;
+  });
+
+  // Update metrics
+  const m = data.metrics || {};
+  document.getElementById('mPDR').textContent = (m.delivery_ratio||0).toFixed(3);
+  document.getElementById('mLatency').textContent = (m.average_latency === Infinity ? '∞' : (m.average_latency||0).toFixed(2));
+  document.getElementById('mActive').textContent = nodes.filter(n=>n.alive).length;
+  document.getElementById('mConn').textContent = (m.connectivity||0).toFixed(3);
+  document.getElementById('mSent').textContent = m.total_packets_sent||0;
+  document.getElementById('mDelivered').textContent = m.total_packets_delivered||0;
+  document.getElementById('mTime').textContent = (m.time||0).toFixed(1);
+  document.getElementById('mReward').textContent = (data.reward||0).toFixed(1);
+
+  // Reputation chart
+  const repDist = data.reputation_distribution || [];
+  const chart = document.getElementById('repChart');
+  chart.innerHTML = '';
+  if (repDist.length > 0) {
+    // Bucket into 20 bins
+    const bins = new Array(20).fill(0);
+    repDist.forEach(r => { const b = Math.min(19, Math.floor(r * 20)); bins[b]++; });
+    const maxB = Math.max(...bins, 1);
+    bins.forEach(c => {
+      const bar = document.createElement('div');
+      bar.className = 'rep-bar';
+      bar.style.height = (c / maxB * 55) + 'px';
+      bar.style.flex = '1';
+      chart.appendChild(bar);
+    });
+  }
+});
+
+socket.on('sim_reset', () => { packets = []; prevNodes = {}; });
+
+// Animation loop
+function animate() {
+  const w = canvas.width / devicePixelRatio;
+  const h = canvas.height / devicePixelRatio;
+
+  // Clear with dark background
+  ctx.fillStyle = '#0a0e1a';
+  ctx.fillRect(0, 0, w, h);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(0,229,255,0.03)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < w; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+  for (let y = 0; y < h; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+
+  // Interpolate node positions
+  nodes.forEach(n => {
+    n._t = Math.min(1, (n._t || 0) + 0.15);
+    n._cx = lerp(n._sx, n._tx, n._t);
+    n._cy = lerp(n._sy, n._ty, n._t);
+  });
+  const nodeMap = {};
+  nodes.forEach(n => { nodeMap[n.id] = n; });
+
+  // Draw edges
+  if (showEdges) {
+    edges.forEach(e => {
+      const a = nodeMap[e.from], b = nodeMap[e.to];
+      if (!a || !b || !a.alive || !b.alive) return;
+      const alpha = Math.max(0.05, e.quality * 0.4);
+      ctx.strokeStyle = `rgba(0,229,255,${alpha})`;
+      ctx.lineWidth = e.quality * 2;
+      ctx.beginPath();
+      ctx.moveTo(a._cx, a._cy);
+      ctx.lineTo(b._cx, b._cy);
+      ctx.stroke();
+    });
+  }
+
+  // Draw packet trails
+  packets.forEach((p, i) => {
+    const a = nodeMap[p.from], b = nodeMap[p.to];
+    if (!a || !b) return;
+    const col = p.delivered ? 'rgba(76,175,80,0.6)' : 'rgba(255,152,0,0.4)';
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(a._cx, a._cy); ctx.lineTo(b._cx, b._cy); ctx.stroke();
+    ctx.setLineDash([]);
+    // Animated dot
+    const t = ((Date.now() / 500) + i * 0.3) % 1;
+    const dx = lerp(a._cx, b._cx, t), dy = lerp(a._cy, b._cy, t);
+    ctx.fillStyle = p.delivered ? '#4caf50' : '#ff9800';
+    ctx.beginPath(); ctx.arc(dx, dy, 3, 0, Math.PI*2); ctx.fill();
+  });
+  // Fade old packets
+  if (packets.length > 20) packets.shift();
+
+  // Draw nodes
+  nodes.forEach(n => {
+    const x = n._cx, y = n._cy;
+    const radius = Math.max(4, (n.battery / 100) * 10 + 3);
+    const color = n.alive ? (ROLE_COLORS[n.role] || '#78909c') : '#ff5252';
+
+    // Glow
+    if (n.alive) {
+      const grd = ctx.createRadialGradient(x, y, 0, x, y, radius * 3);
+      grd.addColorStop(0, color + '30');
+      grd.addColorStop(1, 'transparent');
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(x, y, radius * 3, 0, Math.PI*2); ctx.fill();
+    }
+
+    // Node circle
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI*2); ctx.fill();
+
+    // Type ring
+    const ringCol = TYPE_RING[n.type] || '#666';
+    ctx.strokeStyle = ringCol;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y, radius + 2, 0, Math.PI*2); ctx.stroke();
+
+    // Battery arc
+    if (n.alive) {
+      const batAngle = (n.battery / 100) * Math.PI * 2;
+      ctx.strokeStyle = n.battery > 25 ? 'rgba(76,175,80,0.6)' : 'rgba(255,82,82,0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, radius + 5, -Math.PI/2, -Math.PI/2 + batAngle); ctx.stroke();
+    }
+
+    // Labels
+    if (showLabels && n.alive) {
+      ctx.fillStyle = 'rgba(224,230,240,0.7)';
+      ctx.font = '9px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`#${n.id}`, x, y - radius - 9);
+      ctx.fillStyle = 'rgba(0,229,255,0.5)';
+      ctx.font = '8px Inter, sans-serif';
+      ctx.fillText(`${n.battery.toFixed(0)}% R:${n.reputation.toFixed(2)}`, x, y + radius + 12);
+    }
+  });
+
+  animFrame = requestAnimationFrame(animate);
+}
+animate();
+
+// Mouse hover for tooltip
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  hoveredNode = null;
+  for (const n of nodes) {
+    const dx = (n._cx||0) - mx, dy = (n._cy||0) - my;
+    if (dx*dx + dy*dy < 200) { hoveredNode = n; break; }
+  }
+  if (hoveredNode) {
+    const n = hoveredNode;
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX - canvas.parentElement.getBoundingClientRect().left + 15) + 'px';
+    tooltip.style.top = (e.clientY - canvas.parentElement.getBoundingClientRect().top - 10) + 'px';
+    tooltip.innerHTML = `
+      <div style="font-weight:600;color:#00e5ff;margin-bottom:4px">Node #${n.id} (${n.type})</div>
+      <div class="tt-row"><span class="tt-label">Role</span><span class="tt-value">${n.role.toUpperCase()}</span></div>
+      <div class="tt-row"><span class="tt-label">Battery</span><span class="tt-value">${n.battery.toFixed(1)}%</span></div>
+      <div class="tt-row"><span class="tt-label">Reputation</span><span class="tt-value">${n.reputation.toFixed(3)}</span></div>
+      <div class="tt-row"><span class="tt-label">Speed</span><span class="tt-value">${n.speed.toFixed(2)} m/s</span></div>
+      <div class="tt-row"><span class="tt-label">Neighbors</span><span class="tt-value">${n.neighbors}</span></div>
+      <div class="tt-row"><span class="tt-label">Queue</span><span class="tt-value">${n.queue} pkts</span></div>
+      <div class="tt-row"><span class="tt-label">NodeScore</span><span class="tt-value">${n.score.toFixed(3)}</span></div>
+    `;
+  } else {
+    tooltip.style.display = 'none';
+  }
+});
+
+// Controls
+function startSim() {
+  socket.emit('start_sim', { speed: parseFloat(document.getElementById('speedSlider').value) / 10 });
+  document.getElementById('statusDot').className = 'status-dot running';
+  document.getElementById('statusText').textContent = 'Running';
+}
+function stopSim() {
+  socket.emit('stop_sim');
+  document.getElementById('statusDot').className = 'status-dot stopped';
+  document.getElementById('statusText').textContent = 'Stopped';
+}
+function toggleLabels() { showLabels = !showLabels; }
+function toggleEdges() { showEdges = !showEdges; }
+function setSpeed(v) {
+  const s = (v / 10).toFixed(1);
+  document.getElementById('speedLabel').textContent = s + 'x';
+  socket.emit('set_speed', { speed: parseFloat(s) });
+}
+</script>
+</body>
+</html>

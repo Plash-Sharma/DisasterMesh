@@ -1,0 +1,194 @@
+# ============================================================================
+# DisasterMesh — Master Configuration
+# Grounded in 5 Papers: RORQ (2023), EDMBOPR (2025), DRL-MANET (2025),
+#                        Q-Learning D2D (2025), HMRFCO (2025)
+# ============================================================================
+
+# --- Simulation Environment ---
+simulation:
+  area_width: 1000            # meters (EDMBOPR Section 4 validated)
+  area_height: 1000
+  area_depth: 1000            # 3D space (EDMBOPR Section 3.2)
+  num_nodes: 30               # Reduced for faster training (EDMBOPR validated up to 1000)
+  bt_range: 250               # meters, IEEE 802.11ax standard (EDMBOPR)
+  simulation_duration: 200    # seconds per episode (reduced for speed)
+  time_step: 1.0              # seconds
+  packet_generation_rate: 0.05
+  max_queue_size: 50
+  max_buffer_mb: 100          # per node (RORQ simulation)
+  packet_size_mb: 1           # per packet (RORQ simulation)
+  seed: 42
+
+# --- Node Types Distribution ---
+node_types:
+  survivor_ratio: 0.60
+  rescue_worker_ratio: 0.25
+  trapped_ratio: 0.15
+
+# --- Mobility Model (EDMBOPR Section 3.2) ---
+mobility:
+  model: "3d_random_waypoint"  # EDMBOPR: 3D Steady-State Random Waypoint
+  survivor_speed_min: 0.5      # m/s (disaster-specific)
+  survivor_speed_max: 2.0
+  rescue_speed_min: 2.0
+  rescue_speed_max: 5.0
+  trapped_speed: 0.0
+  max_speed: 50.0              # m/s (EDMBOPR validation range max)
+  pause_time_min: 5.0
+  pause_time_max: 30.0
+  position_history_len: 10     # EDMBOPR: last 10 positions for avg speed (Eq. 5)
+
+# --- Battery Model ---
+battery:
+  initial_min: 30
+  initial_max: 100
+  idle_drain_rate: 0.001
+  transmit_drain_rate: 0.005
+  receive_drain_rate: 0.003
+  discovery_drain_rate: 0.002
+  ffl_refresh_drain: 0.05      # EDMBOPR Eq. 15: energy per FFL update
+  death_threshold: 5.0
+
+# --- EDMBOPR Node Discovery (Das & Devi, P2P 2025) ---
+edmbopr:
+  dbscan_eps: 250              # meters (IEEE 802.11ax, EDMBOPR Eq. 12)
+  dbscan_min_samples: 2        # EDMBOPR DBSCAN parameter
+  energy_threshold: 0.25       # 25% min energy for FFL (EDMBOPR Eq. 12)
+  hello_interval: 1.0          # seconds between HELLO broadcasts
+  mobility_history_n: 10       # positions for speed calc (EDMBOPR Eq. 5)
+  dist_threshold: 250.0        # meters, threshold distance (EDMBOPR Eq. 14)
+  epsilon_i: 0.15              # optimal exploration rate (EDMBOPR Section 4.1)
+  candidate_set_size: 5        # INCREASED: Gives RL more choices to find faster/better paths
+  mobility_penalty_weight: 0.1 # v_ij × 0.1 (EDMBOPR Eq. 20)
+  energy_penalty_weight: 0.2   # (e_ij - 25) × 0.2 (EDMBOPR Eq. 20)
+  dest_reached_bonus: 100.0    # EDMBOPR Eq. 20 destination reward
+
+# --- RORQ Routing (Ryu & Kim, IEEE Access 2023) ---
+rorq:
+  eta: 0.1                     # Q-learning rate (RORQ Eq. 10)
+  gamma: 0.9                   # Discount factor
+  alpha_rep: 0.5               # Reputation EMA weight (RORQ Eq. 4)
+  beta_rep: 0.5                # Reputation proximity vs speed (RORQ Eq. 5)
+  rep_init: 0.5                # Initial reputation (RORQ)
+  rep_threshold: 0.3           # Min reputation for CFL (RORQ Algorithm 1)
+  c_constant: 1.0              # Epsilon decay constant (RORQ Eq. 11)
+  packet_ttl: 10               # hops (RORQ simulation)
+
+# --- Node Scoring (Combined RORQ + EDMBOPR) ---
+node_scoring:
+  w_battery: 0.35              # battery weight in NodeScore
+  w_reputation: 0.35           # reputation weight
+  w_stability: 0.30            # (1 - mobility/MAX_SPEED) weight
+  anchor_threshold: 0.75       # NodeScore > 0.75 → ANCHOR
+  relay_threshold: 0.40        # NodeScore > 0.40 → RELAY
+
+# --- DQN Agent (DRL-MANET, Pillai et al. IEEE GIET 2025) ---
+dqn:
+  state_dim: 8                 # 8-dimensional observation
+  hidden1: 64                  # Dense(64, ReLU)
+  hidden2: 32                  # Dense(32, ReLU)
+  action_dim: 5                # Must match candidate_set_size = 5
+  learning_rate: 0.001
+  tau: 0.005                   # soft target update
+  memory_size: 10000           # experience replay (DRL-MANET)
+  batch_size: 32               # mini-batch size (DRL-MANET)
+  target_update_freq: 10
+
+# --- Q-Routing (tabular fallback) ---
+q_routing:
+  learning_rate: 0.1           # α (RORQ Eq. 10)
+  discount_factor: 0.9         # γ
+  epsilon_start: 1.0
+  epsilon_decay: 0.995
+  epsilon_min: 0.05
+
+# --- Reward Function (EDMBOPR Eq. 20 + RORQ) ---
+reward:
+  delivery_success: 200.0      # INCREASED: Strongly incentivize reaching the destination
+  delivery_failure: -5.0
+  intermediate_base: -1.0      # EDMBOPR Eq. 20: -1 per hop
+  delay_penalty: -0.1
+  hop_penalty: -0.1            # DECREASED: Don't heavily penalize long paths if they are reliable
+  battery_penalty: -1.0        # DECREASED: Allow sacrificing some battery to guarantee delivery
+  congestion_penalty: -1.0
+  reputation_bonus_weight: 1.5 # relay.rep × 1.5 bonus
+
+# --- DFL (Dynamic Feedback Learning) ---
+dfl:
+  ema_alpha: 0.2               # link quality EMA (EDMBOPR)
+  rep_reward_bonus: 1.5        # reputation bonus multiplier
+
+# --- DRL-MANET Congestion (Pillai et al. 2025) ---
+drl_congestion:
+  enabled: true
+  connectivity_threshold: 0.3  # trigger when < 30% reachable
+  spray_copies: 6              # base L parameter
+  state_dim: 4                 # [throughput, latency, energy, active_ratio]
+  hidden1: 64
+  hidden2: 32
+  action_dim: 4                # [boost_power, reduce_rate, store_carry, spray]
+  learning_rate: 0.001
+  memory_size: 5000
+  batch_size: 32
+
+# --- Q-Learning D2D (Ji et al. IEEE TrustCom 2025) ---
+q_d2d:
+  alpha: 0.1                   # learning rate (Ji et al. Table I)
+  gamma: 0.9                   # discount factor
+  exploration_rate: 0.1        # ε-greedy
+  power_levels: 5              # action: 5 power allocation levels
+  eta_throughput: 1.0           # throughput weight in reward (Eq. 15)
+  mu_power: 0.5                # power cost weight in reward (Eq. 15)
+  bandwidth: 500000000         # 0.5 GHz (Ji et al.)
+
+# --- HMRFCO (Ramesh Babu & Nandakumar, Sci Reports 2025) ---
+hmrfco:
+  population_size: 30          # optimization population
+  max_iterations: 250          # convergence iterations
+  aresgru_input_dim: 18        # network state features
+  aresgru_hidden_dim: 64
+  aresgru_output_dim: 2        # [relay_count, resource_blocks]
+
+# --- Spray and Wait (DTN Fallback) ---
+spray_and_wait:
+  spray_copies: 6
+  connectivity_threshold: 0.3
+  packet_ttl: 300
+
+# --- PROPHET Protocol (legacy, retained for baseline) ---
+prophet:
+  p_init: 0.75
+  beta_transitivity: 0.25
+  gamma_aging: 0.98
+  aging_interval: 30.0
+
+# --- MAB (legacy, retained for baseline) ---
+mab:
+  exploration_constant: 2.0
+
+# --- Federated Learning (WAFL) ---
+federated:
+  local_epochs: 5
+  fl_round_interval: 60
+  gradient_quantization: 8
+  sparse_top_k_percent: 30
+  min_nodes_for_fl: 3
+
+# --- Training ---
+training:
+  num_episodes: 500            # INCREASED: Train RL model longer to ensure convergence
+  max_steps_per_episode: 200
+  eval_interval: 50
+  save_interval: 100
+  log_interval: 10
+
+# --- Evaluation ---
+evaluation:
+  num_eval_episodes: 50
+  baselines:
+    - "rorq_only"
+    - "edmbopr_only"
+    - "epidemic"
+    - "spray_and_wait"
+    - "aodv"
+    - "disaster_mesh"

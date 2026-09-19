@@ -1,0 +1,17 @@
+gymnasium
+torch
+torchvision
+numpy
+pandas
+matplotlib
+seaborn
+scikit-learn
+networkx
+simpy
+scipy
+tqdm
+flask
+flask-socketio
+plotly
+bleak
+dash
